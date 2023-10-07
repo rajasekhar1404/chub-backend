@@ -12,8 +12,13 @@ const createUserPhoto = async (profilePhoto) => {
     await userPhotoModal.create(profilePhoto)
 }
 
+const deleteUserPhoto = async ( id ) => {
+    return await userPhotoModal.deleteOne({userId: id})
+}
+
 module.exports = {
     getUserPhotoById,
     findUserPhotoAndUpdate,
-    createUserPhoto
+    createUserPhoto,
+    deleteUserPhoto
 }

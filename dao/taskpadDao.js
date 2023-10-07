@@ -59,6 +59,10 @@ const findPublicTaskpadById = async ( id, tpId ) =>  {
     return response
 }
 
+const deleteAllTaskPads = async ( id ) => {
+    return await taskpadModal.deleteMany({userid : id})
+}
+
 module.exports = {
     getLatestTaskPadId,
     createNewTaskpad,
@@ -67,5 +71,6 @@ module.exports = {
     deleteTaskpad,
     findAllTaskPadTitlesAndIdsOfUser,
     findAllPublicTaskpads,
-    findPublicTaskpadById
+    findPublicTaskpadById,
+    deleteAllTaskPads
 }

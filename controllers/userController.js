@@ -1,17 +1,19 @@
 const userModel = require('../models/userModel')
 const asyncHandler = require('express-async-handler')
 const otpsModal = require('../models/otp')
-const { OK, CREATED } = require('../constants/statusCodes')
-const { findUserByEmail, createUser, findUserByQuery, findAndUpdateUserById } = require('../dao/userDao')
+const { OK, CREATED, NOT_FOUND } = require('../constants/statusCodes')
+const { findUserByEmail, createUser, findUserByQuery, findAndUpdateUserById, deleteUserAccount } = require('../dao/userDao')
 const { encryptPassword, verifyPassword } = require('../utils/passwordEncoder')
 const { isPropertyNotEmpty, isPropertyExists } = require('../utils/stringValidator')
 const { buildSuccessResponse, buildFailureResponse } = require('../utils/responseBuilder')
 const { createToken } = require('../utils/jwtUtils')
-const { getUserPhotoById, findUserPhotoAndUpdate, createUserPhoto } = require('../dao/userPhotoDao')
+const { getUserPhotoById, findUserPhotoAndUpdate, createUserPhoto, deleteUserPhoto } = require('../dao/userPhotoDao')
 const { generateOTP } = require('../utils/otpUtils')
 const { createOtp, findValidOTP, deleteAllOtps } = require('../dao/otpDao')
 const { sendEmail } = require('../utils/krsEmailSender')
 const forgotPasswordOTPTemplate = require('../templates/forgotPasswordOTPTemplate')
+const { deleteAllTaskPads } = require('../dao/taskpadDao')
+const { deleteAllTasks } = require('../dao/tasksDao')
 
 const registerUser = asyncHandler(async (req, res) => {
     const user = req.body
@@ -85,6 +87,15 @@ const updateForgotPassword = asyncHandler( async (req, res) => {
     await findAndUpdateUserById(registeredUser._id, { password: await encryptPassword(password) }) ? buildSuccessResponse({message: 'Password updated successfully'}, OK, res) : buildFailureResponse('Unable to update the password', res)
 })
 
+const deleteAccountPermanently = asyncHandler( async (req, res) => {
+    const user = req.user
+    await deleteUserPhoto(user.id)
+    await deleteAllTaskPads(user.id)
+    await deleteAllTasks(user.id) 
+    const userAccountDeleteStatus = await deleteUserAccount(user.id)
+    userAccountDeleteStatus.deletedCount != 0 ? buildSuccessResponse({message: "user account deleted"}, OK, res) : buildFailureResponse({message: "User account not found"}, NOT_FOUND, res)
+})
+
 // utility methods
 const validateAndBuildRegisterUserRequest = async (user) => {
 
@@ -124,7 +135,8 @@ const buildUserModal = (user) => {
         projects: user.projects,
         skills : user.skills,
         contact: user.contact,
-        isPublic: user.isPublic
+        isPublic: user.isPublic,
+        twoWayAuth: user.twoWayAuth
     }
 }
 
@@ -155,5 +167,6 @@ module.exports = {
     getPublicUserByEmail,
     generateForgotPasswordCode,
     verifyForgotPasswordOTP,
-    updateForgotPassword
+    updateForgotPassword,
+    deleteAccountPermanently
 }

@@ -37,6 +37,10 @@ const User = mongoose.Schema({
     isPublic : {
         type: Boolean,
         required: [true, 'visibility required']
+    },
+    twoWayAuth : {
+        type: Boolean,
+        required: false
     }
 })
 

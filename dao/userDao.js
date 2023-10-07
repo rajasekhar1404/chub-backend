@@ -34,9 +34,14 @@ const findUserByQuery = async (query) => {
     return await userModal.findOne(query)
 }
 
+const deleteUserAccount = async (id) => {
+    return await userModal.deleteOne({_id: id})
+}
+
 module.exports = {
     findUserByEmail,
     createUser,
     findUserByQuery,
-    findAndUpdateUserById
+    findAndUpdateUserById,
+    deleteUserAccount
 }

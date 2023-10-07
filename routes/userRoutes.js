@@ -1,5 +1,5 @@
 const express = require('express')
-const { registerUser, loginUser, updateUser, getLoggedInUser, getUserProfilePhoto, updateUserProfilePhoto, getPublicUserByEmail, generateForgotPasswordCode, verifyForgotPasswordOTP, updateForgotPassword } = require('../controllers/userController')
+const { registerUser, loginUser, updateUser, getLoggedInUser, getUserProfilePhoto, updateUserProfilePhoto, getPublicUserByEmail, generateForgotPasswordCode, verifyForgotPasswordOTP, updateForgotPassword, deleteAccountPermanently } = require('../controllers/userController')
 const validateToken = require('../middlewares/validateToken')
 const router = express.Router()
 
@@ -12,5 +12,6 @@ router.route('/profilePhoto').get(validateToken, getUserProfilePhoto).post(valid
 router.route('/forgotPassword/:email').get(generateForgotPasswordCode)
 router.route('/verifyotp').post(verifyForgotPasswordOTP)
 router.route('/updateForgotPassword').post(updateForgotPassword)
+router.route('/deleteAccount').delete(validateToken, deleteAccountPermanently)
 
 module.exports = router

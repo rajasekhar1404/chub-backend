@@ -12,7 +12,7 @@ require('dotenv').config()
 
 const app = express()
 app.use(cors())
-app.listen(process.env.PORT)
+app.listen(process.env.PORT, () => console.log("Application started in port: ", process.env.PORT))
 
 dbConnection()
 
