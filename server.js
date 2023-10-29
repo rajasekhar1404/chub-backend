@@ -8,11 +8,14 @@ const cors = require('cors')
 const errorHandler = require('./middlewares/errorHandler')
 const { redirectRequests } = require('./middlewares/redirectRequests')
 const otpDeleteJob = require('./scheduler/otpScheduler')
+const { WebSocketServer } = require('ws')
+const { onConnection } = require('./webSocket/WebSocketEventHandler')
 require('dotenv').config()
 
 const app = express()
 app.use(cors())
-app.listen(process.env.PORT, () => console.log("Application started in port: ", process.env.PORT))
+const server = app.listen(process.env.PORT, () => console.log("Application started in port: ", process.env.PORT))
+const wss = new WebSocketServer({ server:server, path: '/ws' })
 
 dbConnection()
 
@@ -27,5 +30,6 @@ app.get("/", (req, res) => {
 app.use('/api/tasks', taskRoutes)
 app.use('/api/taskpad', taskPadRoutes)
 app.use('/api/users', userRoutes)
+wss.on('connection', (ws) => onConnection(ws, wss))
 app.use(errorHandler)
 otpDeleteJob.schedule(new Date())
