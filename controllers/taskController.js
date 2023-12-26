@@ -1,6 +1,8 @@
 const { BAD_REQUEST, OK, INTERNAL_SERVER_ERROR, NOT_FOUND } = require('../constants/statusCodes')
+const { findTasksBetween } = require('../dao/tasksDao')
 const taskModel = require('../models/taskModel')
 const asyncHandler = require('express-async-handler')
+const { buildFailureResponse, buildSuccessResponse } = require('../utils/responseBuilder')
 
 const getTask = asyncHandler(async (req, res) => {
     const id = req.params.id
@@ -27,6 +29,12 @@ const getTasksByDate = asyncHandler(async (req, res) => {
         dueDate : {$gte : date}
     })
     res.json(data)
+})
+
+const getTasksByDateRange = asyncHandler(async (req, res) => {
+    const { fromDate, toDate } = req.body;
+    if ( !fromDate || !toDate ) buildFailureResponse('Date range not found', res)
+    else buildSuccessResponse(await findTasksBetween(req.user.id, fromDate, toDate), OK, res)
 })
 
 const getAllTasks = asyncHandler(async (req, res) => {
@@ -102,4 +110,5 @@ module.exports = {
     updateTask,
     deleteTask,
     getTasksByDate,
+    getTasksByDateRange
 }
