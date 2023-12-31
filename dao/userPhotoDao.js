@@ -16,9 +16,16 @@ const deleteUserPhoto = async ( id ) => {
     return await userPhotoModal.deleteOne({userId: id})
 }
 
+const getUsersPhotosByIds = async (ids) => {
+    return await userPhotoModal.find(
+        { userId: { $in : ids } }
+    )
+}
+
 module.exports = {
     getUserPhotoById,
     findUserPhotoAndUpdate,
     createUserPhoto,
-    deleteUserPhoto
+    deleteUserPhoto,
+    getUsersPhotosByIds
 }

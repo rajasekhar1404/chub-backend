@@ -1,4 +1,6 @@
+const followedAuthors = require('../models/followedAuthors.')
 const userModal = require('../models/userModel')
+const { createUserPhoto } = require('./userPhotoDao')
 
 const findUserByEmail = async ( email ) => {
     const response = await userModal.findOne({email: email})
@@ -23,6 +25,14 @@ const createUser = async ( user ) => {
     if (!response) {
         throw new Error('Unable to register the user')
     }
+
+    await createUserPhoto({
+        userId: response._id.toString(),
+        userName: response.fullname,
+        thumbnailPhoto: '',
+        profilePhoto: ''
+    })
+
     return response
 }
 
@@ -38,10 +48,69 @@ const deleteUserAccount = async (id) => {
     return await userModal.deleteOne({_id: id})
 }
 
+const findUserExists = async (id) => {
+    return await userModal.exists({_id: id})
+}
+
+const followAuthor = async (userId, authorId) => {
+    const response = await followedAuthors.findOneAndUpdate(
+        { userId: userId, author: { $ne: authorId } },
+        { $addToSet: { author: authorId } },
+        { new: true } 
+    )
+    return response ? response : await createFollowingList(userId, authorId)
+}
+
+const unFollowAuthor = async (userId, authorId) => {
+    const response = await followedAuthors.findOneAndUpdate(
+        { userId: userId, author: authorId },
+        { $pull: { author: authorId } },
+        { new: true } 
+    )
+    return response 
+}
+
+const createFollowingList = async (userId, authorId) => {
+    const response = await followedAuthors.exists({userId: userId})
+    if (!response) {
+        return await followedAuthors.create({userId: userId, author: [authorId]})
+    } else {
+        return { message: 'You are already following this author' }
+    }
+}
+
+const findFollowingAuthors = async (id) => {
+    return await followedAuthors.findOne({userId: id})
+}
+
+const searchUsers = async ( userName ) => {
+    return await userModal.find({
+        $and: [
+            { fullname: { $regex: '.*' + userName }},
+            { isPublic: true }
+        ]
+    }).select(['_id'])
+}
+
+const findPublicAuthorById = async (id) => {
+    return await userModal.findOne({
+        $and: [
+            { _id: id},
+            { isPublic: true }
+        ]
+    })
+}
+
 module.exports = {
     findUserByEmail,
     createUser,
     findUserByQuery,
     findAndUpdateUserById,
-    deleteUserAccount
+    deleteUserAccount,
+    findFollowingAuthors,
+    followAuthor,
+    findUserExists,
+    unFollowAuthor,
+    searchUsers,
+    findPublicAuthorById
 }

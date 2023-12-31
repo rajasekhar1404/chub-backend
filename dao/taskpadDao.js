@@ -35,7 +35,7 @@ const findAllTaskPadTitlesAndIdsOfUser = async (id) => {
 const deleteTaskpad = async (userid, taskpadId) => {
     const response = await taskpadModal.deleteOne({
         $and: [
-            {userid: userid}, {taskpadId: taskpadId}
+            {userid: userid}, {_id: taskpadId}
         ]
     })
     if ( response.deletedCount <= 0 ) throw new Error( `${taskpadId} not found` )
@@ -46,7 +46,11 @@ const findAllPublicTaskpads = async (id) => {
         $and: [
             {userid:id}, {isPublic: true}
         ]
-    }).sort( {createdAt: -1} ).select(['taskpadId', 'title'])
+    }).sort( {createdAt: -1} ).select(['taskpadId', 'title', "_id"])
+}
+
+const findTaskpadById = async (id) => {
+    return await taskpadModal.findById(id)
 }
 
 const findPublicTaskpadById = async ( id, tpId ) =>  {
@@ -59,8 +63,36 @@ const findPublicTaskpadById = async ( id, tpId ) =>  {
     return response
 }
 
+const findPublicPostById = async ( id ) =>  {
+    const response = await taskpadModal.findOne({
+        $and: [
+            {_id: id}, {isPublic: true}
+        ]
+    })
+    if (!response) throw new Error(`Post not found`)
+    return response
+}
+
 const deleteAllTaskPads = async ( id ) => {
     return await taskpadModal.deleteMany({userid : id})
+}
+
+const searchPublicTaskpads = async (title) => {
+    return await taskpadModal.find({
+        $and: [
+            { title: { $regex: '.*' + title }},
+            { isPublic: true }
+        ]
+    }).sort( {createdAt: -1} ).select(['taskpadId', 'title', "_id"])
+}
+
+const getTaskpadsByIds = async (ids) => {
+    return await taskpadModal.find({
+        $and: [
+            { _id: { $in : ids }},
+            { isPublic: true }
+        ]
+    }).select(['title', "_id"])
 }
 
 module.exports = {
@@ -72,5 +104,9 @@ module.exports = {
     findAllTaskPadTitlesAndIdsOfUser,
     findAllPublicTaskpads,
     findPublicTaskpadById,
-    deleteAllTaskPads
+    deleteAllTaskPads,
+    findTaskpadById,
+    searchPublicTaskpads,
+    findPublicPostById,
+    getTaskpadsByIds
 }

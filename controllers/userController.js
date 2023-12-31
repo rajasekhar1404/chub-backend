@@ -2,18 +2,19 @@ const userModel = require('../models/userModel')
 const asyncHandler = require('express-async-handler')
 const otpsModal = require('../models/otp')
 const { OK, CREATED, NOT_FOUND } = require('../constants/statusCodes')
-const { findUserByEmail, createUser, findUserByQuery, findAndUpdateUserById, deleteUserAccount } = require('../dao/userDao')
+const { findUserByEmail, createUser, findUserByQuery, findAndUpdateUserById, deleteUserAccount, findFollowingAuthors, findUserExists, followAuthor, unFollowAuthor, searchUsers } = require('../dao/userDao')
 const { encryptPassword, verifyPassword } = require('../utils/passwordEncoder')
 const { isPropertyNotEmpty, isPropertyExists } = require('../utils/stringValidator')
 const { buildSuccessResponse, buildFailureResponse } = require('../utils/responseBuilder')
 const { createToken } = require('../utils/jwtUtils')
-const { getUserPhotoById, findUserPhotoAndUpdate, createUserPhoto, deleteUserPhoto } = require('../dao/userPhotoDao')
+const { getUserPhotoById, findUserPhotoAndUpdate, createUserPhoto, deleteUserPhoto, getUsersPhotosByIds } = require('../dao/userPhotoDao')
 const { generateOTP } = require('../utils/otpUtils')
 const { createOtp, findValidOTP, deleteAllOtps } = require('../dao/otpDao')
 const { sendEmail } = require('../utils/krsEmailSender')
 const forgotPasswordOTPTemplate = require('../templates/forgotPasswordOTPTemplate')
 const { deleteAllTaskPads } = require('../dao/taskpadDao')
 const { deleteAllTasks } = require('../dao/tasksDao')
+const { FOLLOW, UNFOLLOW } = require('../constants/userConstants')
 
 const registerUser = asyncHandler(async (req, res) => {
     const user = req.body
@@ -38,14 +39,19 @@ const getLoggedInUser = asyncHandler( async (req, res) => {
 const getUserProfilePhoto = asyncHandler( async (req, res) => {
     const user = req.user
     const userPhoto = await getUserPhotoById(user.id)
-    userPhoto ? buildSuccessResponse({profilePhoto: userPhoto.profilePhoto}, OK, res) : buildSuccessResponse('', OK, res)
+    userPhoto ? buildSuccessResponse(userPhoto, OK, res) : buildSuccessResponse('', OK, res)
 })
 
 const updateUserProfilePhoto = asyncHandler( async (req, res) => {
     const user = req.user
-    const { profilePhoto } = req.body
+    const { thumbnailPhoto, profilePhoto } = req.body
     const userPhoto = await getUserPhotoById(user.id)
-    userPhoto ? await findUserPhotoAndUpdate(user.id, { profilePhoto: profilePhoto }) : await createUserPhoto({userId: user.id, profilePhoto: profilePhoto})
+    userPhoto ? await findUserPhotoAndUpdate(user.id, { thumbnailPhoto: thumbnailPhoto, profilePhoto: profilePhoto }) : await createUserPhoto({
+        userId: user.id,
+        userName: user.fullname,
+        thumbnailPhoto: thumbnailPhoto,
+        profilePhoto: profilePhoto
+    })
     buildSuccessResponse('Profile photo updated successfully', OK, res)
 })
 
@@ -96,7 +102,49 @@ const deleteAccountPermanently = asyncHandler( async (req, res) => {
     userAccountDeleteStatus.deletedCount != 0 ? buildSuccessResponse({message: "user account deleted"}, OK, res) : buildFailureResponse({message: "User account not found"}, NOT_FOUND, res)
 })
 
+const getFollowingAuthors = asyncHandler( async (req, res) => {
+    const { id } = req.user
+    const validUserId = isPropertyNotEmpty(id, 'Id')
+    // find all the following authors
+    const following = await findFollowingAuthors(validUserId)
+    const userPhotos = following ? await getUsersPhotosByIds(following.author) : []
+    // get the count of liked posts of each author by the user
+    // sort the authors in decreasing order
+    // return the sorted followers list
+    buildSuccessResponse(userPhotos, OK, res)
+})
+
+const updateFollowingList = asyncHandler( async (req, res) => {
+    const { id } = req.user
+    const { action, authorId } = req.body
+
+    const validUserId = isPropertyNotEmpty(id, 'Id')
+    const validAuthorId = isPropertyNotEmpty(authorId, 'Author Id')
+    const validAction = isValidFollowingUpdateAction(action)
+    if (validUserId === validAuthorId) return buildFailureResponse(`You cannot ${action} yourself`, res)
+    
+    const existingAuthor = await findUserExists(validAuthorId)
+    if (!existingAuthor) return buildFailureResponse('Author not found', res)
+    const response = validAction === FOLLOW ? await followAuthor(validUserId, existingAuthor._id) : await unFollowAuthor(validUserId, existingAuthor._id)
+    response ? buildSuccessResponse( { message: 'Success' }, OK, res) : buildFailureResponse(`Unable to ${action} user`, res)
+})
+
+const searchAuthors = asyncHandler( async (req, res) => {
+    const { type, content } = req.body
+    if (type !== 'Author') return buildFailureResponse('Invalid search', res)
+    const result = await searchUsers(content.toUpperCase())
+    const ids = result.map(eachUser => eachUser._id.toString())
+    const searchResults = await getUsersPhotosByIds(ids)
+    buildSuccessResponse(searchResults, OK, res)
+})
+
 // utility methods
+const isValidFollowingUpdateAction = (action) => {
+    let formattedAction = action?.toUpperCase().trim()
+    if (formattedAction === FOLLOW || formattedAction === UNFOLLOW) return formattedAction
+    else throw new Error(`${action}: is not invalid`)
+}
+
 const validateAndBuildRegisterUserRequest = async (user) => {
 
     const { fullname, email, password } = user
@@ -157,6 +205,13 @@ const validateUpdateUserRequest = async ( user, registeredUser ) => {
     return updatedUser
 }
 
+const getUserProfileById = asyncHandler( async (req, res) => {
+    const { userId } = req.body
+    const validUserId = isPropertyNotEmpty(userId, 'Author')
+    const result = await getUserPhotoById(validUserId)
+    buildSuccessResponse(result, OK, res)
+})
+
 module.exports = {
     registerUser,
     loginUser,
@@ -168,5 +223,9 @@ module.exports = {
     generateForgotPasswordCode,
     verifyForgotPasswordOTP,
     updateForgotPassword,
-    deleteAccountPermanently
+    deleteAccountPermanently,
+    getFollowingAuthors,
+    updateFollowingList,
+    searchAuthors,
+    getUserProfileById
 }
