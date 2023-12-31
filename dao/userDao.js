@@ -1,5 +1,7 @@
 const followedAuthors = require('../models/followedAuthors.')
 const userModal = require('../models/userModel')
+const { savePost } = require('./savedPostsDao')
+const { findTaskpadById, createNewTaskpad } = require('./taskpadDao')
 const { createUserPhoto } = require('./userPhotoDao')
 
 const findUserByEmail = async ( email ) => {
@@ -33,6 +35,13 @@ const createUser = async ( user ) => {
         profilePhoto: ''
     })
 
+    // add CentralHub user guide after registering
+    const chubUserGuide = await findTaskpadById('6591acc5080837bc3278674d')
+    await createNewTaskpad({taskpadId: chubUserGuide.taskpadId, userid: response._id.toString(), title: chubUserGuide.title, content: chubUserGuide.content, isPublic: false})
+    // follow CentralHub
+    await followAuthor(response._id.toString(), chubUserGuide.userid)
+    // save Markdown userguide
+    await savePost(response._id.toString(), '6591baa9080837bc327867d4')
     return response
 }
 

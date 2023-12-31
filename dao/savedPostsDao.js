@@ -38,5 +38,6 @@ module.exports = {
     savePost,
     removeSavedPost,
     getSavedPostsByUserId,
-    deleteFromSavedPost
+    deleteFromSavedPost,
+    createNewSavedPost
 }
