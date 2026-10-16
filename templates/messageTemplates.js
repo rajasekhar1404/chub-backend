@@ -1,6 +1,6 @@
 const feedbackTemplate = (title, email, fullname, message) => {
     return {
-        from: 'mrrajasekhar09@gmail.com',
+        from: process.env.EMAIL_FROM || 'CentralHub <onboarding@resend.dev>',
         to: email,
         subject: `Feedback: ${title}`,
         text: `Feedback: ${title}`,

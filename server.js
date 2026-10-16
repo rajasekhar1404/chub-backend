@@ -1,35 +1,37 @@
 const express = require('express')
-const path = require('path')
 const taskRoutes = require('./routes/taskRoutes')
 const taskPadRoutes = require('./routes/taskPadRoutes')
 const userRoutes = require('./routes/userRoutes')
-const dbConnection = require('./config/dbConfig')
 const cors = require('cors')
 const errorHandler = require('./middlewares/errorHandler')
 const { redirectRequests } = require('./middlewares/redirectRequests')
-const otpDeleteJob = require('./scheduler/otpScheduler')
-const { WebSocketServer } = require('ws')
-const { onConnection } = require('./webSocket/WebSocketEventHandler')
-require('dotenv').config()
+const dbConnection = require('./config/dbConfig')
+const jsonBodyParser = require('./middlewares/jsonBodyParser')
 
 const app = express()
 app.use(cors())
-const server = app.listen(process.env.PORT, () => console.log("Application started in port: ", process.env.PORT))
-const wss = new WebSocketServer({ server:server, path: '/ws' })
-
-dbConnection()
-
-app.use(express.json({limit: '50mb'}))
-app.use(express.static(path.join(__dirname, 'build')))
-app.use(redirectRequests)
-
-app.get("/", (req, res) => {
-    res.sendFile(path.join(__dirname, 'build', 'index.html'))
+app.get('/', (req, res) => res.json({ service: 'CentralHub API', status: 'ok' }))
+app.use(async (req, res, next) => {
+    try {
+        await dbConnection()
+        next()
+    } catch (error) {
+        next(error)
+    }
 })
+
+app.use(jsonBodyParser({ limitBytes: 50 * 1024 * 1024 }))
+app.use(redirectRequests)
 
 app.use('/api/tasks', taskRoutes)
 app.use('/api/taskpad', taskPadRoutes)
 app.use('/api/users', userRoutes)
-wss.on('connection', (ws) => onConnection(ws, wss))
 app.use(errorHandler)
-otpDeleteJob.schedule(new Date())
+
+if (require.main === module) {
+    require('dotenv').config()
+    const port = process.env.PORT || 3000
+    app.listen(port, () => console.log('Application started in port:', port))
+}
+
+module.exports = app

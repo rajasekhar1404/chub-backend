@@ -1,6 +1,6 @@
 const forgotPasswordOTPTemplate = (email, fullname, otp) => {
     return {
-        from: 'mrrajasekhar09@gmail.com',
+        from: process.env.EMAIL_FROM || 'CentralHub <onboarding@resend.dev>',
         to: email,
         subject: 'CentralHub Password reset OTP',
         text: "CentralHub Password reset OTP",
