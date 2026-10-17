@@ -7,6 +7,7 @@ const errorHandler = require('./middlewares/errorHandler')
 const { redirectRequests } = require('./middlewares/redirectRequests')
 const dbConnection = require('./config/dbConfig')
 const jsonBodyParser = require('./middlewares/jsonBodyParser')
+const http = require('node:http')
 
 const app = express()
 app.use(cors())
@@ -31,7 +32,10 @@ app.use(errorHandler)
 if (require.main === module) {
     require('dotenv').config()
     const port = process.env.PORT || 3000
-    app.listen(port, () => console.log('Application started in port:', port))
+    const server = http.createServer(app)
+    const { attachWebSocketServer } = require('./webSocketServer')
+    attachWebSocketServer(server)
+    server.listen(port, () => console.log('Application started in port:', port))
 }
 
 module.exports = app

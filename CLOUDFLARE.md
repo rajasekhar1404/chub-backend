@@ -33,7 +33,9 @@ Create `.dev.vars` (already ignored by Git) with `ATLAS_URL` and `ACCESS_KEY`, t
 npm run dev
 ```
 
-The `.env` file remains available for `npm start` on a regular Node.js server. Cloudflare ignores that file and uses Worker secrets instead.
+Wrangler serves the local Worker, including `/ws`, on port 8787 by default. The `.env` file remains available for `npm start` on a regular Node.js server; that server also accepts WebSocket connections at `/ws` on the same port as the HTTP API (3000 by default, or `PORT`). Cloudflare ignores `.env` and uses Worker secrets instead.
+
+When connecting a physical Android device to a local server, configure the app with the computer's LAN IP and the backend's port. Do not use the Expo/Metro port for the backend URL.
 
 ## Email utility
 

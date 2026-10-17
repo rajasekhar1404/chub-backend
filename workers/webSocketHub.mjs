@@ -32,7 +32,14 @@ export class WebSocketHub extends DurableObject {
             .filter(Boolean)
         const protocol = protocols[0]
 
-        if (protocol) server.serializeAttachment({ protocol })
+        if (protocol) {
+            for (const existingSocket of this.ctx.getWebSockets()) {
+                if (existingSocket.deserializeAttachment()?.protocol === protocol) {
+                    existingSocket.close(1000, 'Replaced by a newer connection')
+                }
+            }
+            server.serializeAttachment({ protocol })
+        }
         this.ctx.acceptWebSocket(server)
 
         const headers = protocol ? { 'Sec-WebSocket-Protocol': protocol } : undefined
@@ -58,6 +65,8 @@ export class WebSocketHub extends DurableObject {
         const send = (target, payload) => {
             if (target.readyState === WebSocket.OPEN) target.send(JSON.stringify(payload))
         }
+
+        if (message.messageType === 'keep_alive') return
 
         for (const client of sockets) {
             const clientProtocol = client.deserializeAttachment()?.protocol
@@ -106,7 +115,9 @@ export class WebSocketHub extends DurableObject {
         if (message.messageType === 'CONSOLE_DEVICE_PAIRING') {
             const displayProtocol = `${message.data?.deviceId}_DISPLAY_DEVICE`
             const hasDisplay = sockets.some((client) =>
-                client !== socket && client.deserializeAttachment()?.protocol === displayProtocol,
+                client !== socket &&
+                client.readyState === WebSocket.OPEN &&
+                client.deserializeAttachment()?.protocol === displayProtocol,
             )
             if (!hasDisplay) {
                 send(socket, {
@@ -114,7 +125,6 @@ export class WebSocketHub extends DurableObject {
                     deviceType: 'CONSOLE_DEVICE',
                     status: NOT_FOUND,
                 })
-                socket.close(1000, 'Display device was not connected')
             }
         }
     }
