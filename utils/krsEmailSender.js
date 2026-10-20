@@ -1,20 +1,41 @@
-const sendEmail = async (template) => {
-    if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY is not configured')
+const nodemailer = require('nodemailer')
 
-    const response = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-            Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ ...template, from: process.env.EMAIL_FROM || template.from }),
-    })
+let transporter
 
-    if (!response.ok) {
-        throw new Error(`Email provider returned ${response.status}`)
+const getTransporter = () => {
+    if (transporter) return transporter
+
+    const { GMAIL_USER, GMAIL_APP_PASSWORD } = process.env
+    if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
+        throw new Error('GMAIL_USER and GMAIL_APP_PASSWORD must be configured')
     }
 
-    return response.json()
+    transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 465,
+        secure: true,
+        auth: {
+            user: GMAIL_USER,
+            pass: GMAIL_APP_PASSWORD.replace(/\s+/g, ''),
+        },
+    })
+
+    return transporter
+}
+
+const sendEmail = async (template) => {
+    if (!template.to || !template.subject) {
+        throw new Error('Email template must include a recipient and subject')
+    }
+
+    if (!template.text && !template.html) {
+        throw new Error('Email template must include text or html content')
+    }
+
+    return getTransporter().sendMail({
+        ...template,
+        from: process.env.EMAIL_FROM || process.env.GMAIL_USER,
+    })
 }
 
 module.exports = {

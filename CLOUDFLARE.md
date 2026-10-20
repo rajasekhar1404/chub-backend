@@ -37,6 +37,14 @@ Wrangler serves the local Worker, including `/ws`, on port 8787 by default. The 
 
 When connecting a physical Android device to a local server, configure the app with the computer's LAN IP and the backend's port. Do not use the Expo/Metro port for the backend URL.
 
-## Email utility
+## Gmail SMTP email utility
 
-The forgot-password and feedback routes send through Resend's HTTPS API because SMTP sockets are not a portable Workers transport. The local `.env` currently contains placeholders for `RESEND_API_KEY` and `EMAIL_FROM`; replace them with a real Resend API key and a sender address verified by Resend before using those routes. Then upload them interactively with `npx wrangler secret put RESEND_API_KEY` and `npx wrangler secret put EMAIL_FROM`. The Cloudflare Worker does not have placeholder email credentials. Never commit `.env` or paste the API key into chat.
+The forgot-password and feedback routes use Nodemailer with Gmail SMTP. SMTP requires a regular Node.js host; Cloudflare Workers cannot open SMTP connections, so these routes will not send email when running in the Worker deployment. Run the backend with `npm start` on a Node.js host to use SMTP.
+
+Configure these environment variables in the Node.js host's secret manager (or in a local `.env` file):
+
+- `GMAIL_USER`: the Gmail account address used to send messages.
+- `GMAIL_APP_PASSWORD`: an App Password created for that Google account. Do not use the account's normal password.
+- `EMAIL_FROM` (optional): a sender name/address, for example `CentralHub Support <your-address@gmail.com>`. The address must be permitted for that Gmail account; otherwise it defaults to `GMAIL_USER`.
+
+Never commit `.env` or paste credentials into chat. If an App Password has been exposed, revoke it in your Google Account and create a new one.
