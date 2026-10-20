@@ -75,7 +75,7 @@ const generateForgotPasswordCode = asyncHandler( async (req, res) => {
     const user = await findUserByEmail(email)
     await deleteAllOtps(user._id)
     const generatedOTP = await createOtp(user._id, generateOTP())
-    sendEmail(forgotPasswordOTPTemplate(email, user.fullname, generatedOTP.otp))
+    await sendEmail(forgotPasswordOTPTemplate(email, user.fullname, generatedOTP.otp))
     buildSuccessResponse({message: `Verification OTP sent to ${email}`}, OK, res)
 })
 

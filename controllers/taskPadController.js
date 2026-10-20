@@ -112,7 +112,7 @@ const sendFeedbackMessage = asyncHandler( async (req, res) => {
     // take email and title out of it
     const { email, fullname } = await findPublicAuthorById(userid)
     // send email
-    sendEmail(feedbackTemplate(title, email, fullname, message))
+    await sendEmail(feedbackTemplate(title, email, fullname, message))
     // save the feedback
     buildSuccessResponse({message: 'Feedback sent'}, OK, res)
 })
