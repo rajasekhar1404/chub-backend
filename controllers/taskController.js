@@ -99,7 +99,7 @@ const updateTask = asyncHandler(async (req, res) => {
 })
 
 const deleteTask = asyncHandler(async (req, res) => {
-    const data = await taskModel.findByIdAndRemove(req.params.id)
+    const data = await taskModel.findByIdAndDelete(req.params.id)
     res.json(data)
 })
 
