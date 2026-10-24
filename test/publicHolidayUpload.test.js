@@ -1,6 +1,12 @@
 const assert = require('node:assert/strict')
 const { test } = require('node:test')
-const { normalizeHolidayUpload } = require('../utils/publicHolidayService')
+const PublicHolidayCountry = require('../models/publicHolidayCountry')
+const PublicHolidayYear = require('../models/publicHolidayYear')
+const {
+    getPublicHolidays,
+    normalizeHolidayUpload,
+    savePublicHolidays
+} = require('../utils/publicHolidayService')
 
 test('normalizes a manual country/year holiday upload', () => {
     const upload = normalizeHolidayUpload({
@@ -16,8 +22,7 @@ test('normalizes a manual country/year holiday upload', () => {
             {
                 date: '2026-03-04',
                 name: 'Regional Festival',
-                types: ['Festival'],
-                global: false,
+                types: ['Unofficial'],
                 counties: ['IN-MH']
             }
         ]
@@ -34,10 +39,8 @@ test('normalizes a manual country/year holiday upload', () => {
                 name: 'Republic Day',
                 countryCode: 'IN',
                 fixed: false,
-                global: true,
                 counties: null,
-                launchYear: null,
-                types: ['Public']
+                launchYear: null
             },
             {
                 date: '2026-03-04',
@@ -45,13 +48,40 @@ test('normalizes a manual country/year holiday upload', () => {
                 name: 'Regional Festival',
                 countryCode: 'IN',
                 fixed: false,
-                global: false,
                 counties: ['IN-MH'],
-                launchYear: null,
-                types: ['Festival']
+                launchYear: null
             }
         ]
     })
+})
+
+test('replaces the existing holiday list when uploading the same country and year', async () => {
+    const originalCountryUpdateOne = PublicHolidayCountry.updateOne
+    const originalYearUpdateOne = PublicHolidayYear.updateOne
+    let storedHolidays = [{ date: '2026-01-01', name: 'Old holiday' }]
+    let updateOptions
+
+    PublicHolidayCountry.updateOne = async () => {}
+    PublicHolidayYear.updateOne = async (filter, update, options) => {
+        assert.deepEqual(filter, { countryCode: 'IN', year: 2026 })
+        storedHolidays = update.$set.holidays
+        updateOptions = options
+    }
+
+    try {
+        await savePublicHolidays({
+            countryCode: 'IN',
+            countryName: 'India',
+            year: 2026,
+            holidays: [{ date: '2026-01-26', name: 'Republic Day' }]
+        })
+
+        assert.deepEqual(storedHolidays, [{ date: '2026-01-26', name: 'Republic Day' }])
+        assert.equal(updateOptions.upsert, true)
+    } finally {
+        PublicHolidayCountry.updateOne = originalCountryUpdateOne
+        PublicHolidayYear.updateOne = originalYearUpdateOne
+    }
 })
 
 test('rejects a holiday dated outside its uploaded year', () => {
@@ -84,8 +114,8 @@ test('rejects invalid dates and regional codes', () => {
     }), /valid IN region codes/)
 })
 
-test('rejects unsupported holiday types', () => {
-    assert.throws(() => normalizeHolidayUpload({
+test('ignores legacy holiday type metadata', () => {
+    const upload = normalizeHolidayUpload({
         countryCode: 'IN',
         countryName: 'India',
         year: 2026,
@@ -94,10 +124,51 @@ test('rejects unsupported holiday types', () => {
             name: 'Unknown type',
             types: ['Unofficial']
         }]
-    }), /supported holiday types/)
+    })
+
+    assert.equal(Object.hasOwn(upload.holidays[0], 'types'), false)
 })
 
-test('requires region codes for non-global holidays', () => {
+test('keeps legacy globally marked holidays country-wide after removing global metadata', async () => {
+    const originalFindOne = PublicHolidayYear.findOne
+    PublicHolidayYear.findOne = () => ({
+        select: () => ({
+            lean: async () => ({
+                holidays: [{
+                    date: '2026-01-26',
+                    name: 'Republic Day',
+                    global: true,
+                    counties: ['IN-MH'],
+                    types: ['Public']
+                }]
+            })
+        })
+    })
+
+    try {
+        assert.deepEqual(await getPublicHolidays('IN', 2026), [{
+            date: '2026-01-26',
+            name: 'Republic Day',
+            counties: null
+        }])
+    } finally {
+        PublicHolidayYear.findOne = originalFindOne
+    }
+})
+
+test('ignores legacy global metadata and rejects empty region lists', () => {
+    const upload = normalizeHolidayUpload({
+        countryCode: 'IN',
+        countryName: 'India',
+        year: 2026,
+        holidays: [{
+            date: '2026-01-01',
+            name: 'New Year',
+            global: false
+        }]
+    })
+
+    assert.equal(Object.hasOwn(upload.holidays[0], 'global'), false)
     assert.throws(() => normalizeHolidayUpload({
         countryCode: 'IN',
         countryName: 'India',
@@ -105,7 +176,7 @@ test('requires region codes for non-global holidays', () => {
         holidays: [{
             date: '2026-01-01',
             name: 'Regional holiday',
-            global: false
+            counties: []
         }]
-    }), /must include at least one county\/region code/)
+    }), /counties must include at least one region code/)
 })

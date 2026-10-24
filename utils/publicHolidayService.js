@@ -1,15 +1,6 @@
 const PublicHolidayCountry = require('../models/publicHolidayCountry')
 const PublicHolidayYear = require('../models/publicHolidayYear')
 
-const ALLOWED_HOLIDAY_TYPES = new Set([
-    'Public',
-    'Festival',
-    'Bank',
-    'School',
-    'Authorities',
-    'Optional',
-    'Observance'
-])
 const MAX_HOLIDAYS_PER_UPLOAD = 1000
 
 const normalizeHolidayUpload = (body) => {
@@ -63,15 +54,6 @@ const normalizeHolidayUpload = (body) => {
             throw new Error(`Holiday ${entryNumber} localName must contain between 1 and 200 characters.`)
         }
 
-        const types = holiday.types === undefined ? ['Public'] : holiday.types
-        if (
-            !Array.isArray(types) ||
-            types.length === 0 ||
-            types.some(type => typeof type !== 'string' || !ALLOWED_HOLIDAY_TYPES.has(type))
-        ) {
-            throw new Error(`Holiday ${entryNumber} types must contain supported holiday types.`)
-        }
-
         const counties = holiday.counties === undefined || holiday.counties === null
             ? null
             : holiday.counties
@@ -85,12 +67,8 @@ const normalizeHolidayUpload = (body) => {
         ) {
             throw new Error(`Holiday ${entryNumber} counties must contain valid ${countryCode} region codes.`)
         }
-        if (holiday.global !== undefined && typeof holiday.global !== 'boolean') {
-            throw new Error(`Holiday ${entryNumber} global must be true or false.`)
-        }
-        const global = holiday.global ?? counties === null
-        if (!global && (!Array.isArray(counties) || counties.length === 0)) {
-            throw new Error(`Regional holiday ${entryNumber} must include at least one county/region code.`)
+        if (Array.isArray(counties) && counties.length === 0) {
+            throw new Error(`Holiday ${entryNumber} counties must include at least one region code when provided.`)
         }
         if (holiday.fixed !== undefined && typeof holiday.fixed !== 'boolean') {
             throw new Error(`Holiday ${entryNumber} fixed must be true or false.`)
@@ -109,10 +87,8 @@ const normalizeHolidayUpload = (body) => {
             name: name.trim(),
             countryCode,
             fixed: holiday.fixed ?? false,
-            global,
             counties,
-            launchYear: holiday.launchYear ?? null,
-            types
+            launchYear: holiday.launchYear ?? null
         }
     })
 
@@ -136,7 +112,17 @@ const getPublicHolidays = async (countryCode, year) => {
         source: 'manual'
     }).select({ _id: 0, holidays: 1 }).lean()
 
-    return record ? record.holidays : null
+    return record
+        ? record.holidays.map(holiday => {
+            const sanitizedHoliday = { ...holiday }
+            if (sanitizedHoliday.global === true) {
+                sanitizedHoliday.counties = null
+            }
+            delete sanitizedHoliday.types
+            delete sanitizedHoliday.global
+            return sanitizedHoliday
+        })
+        : null
 }
 
 const getHolidayRegions = async (countryCode) => {

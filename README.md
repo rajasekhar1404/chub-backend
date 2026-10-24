@@ -25,22 +25,18 @@ Send a `PUT` request to `/api/holidays` with `Content-Type: application/json`. A
     {
       "date": "2026-01-26",
       "name": "Republic Day",
-      "localName": "Republic Day",
-      "types": ["Public"],
-      "global": true
+      "localName": "Republic Day"
     },
     {
       "date": "2026-03-04",
       "name": "Example Regional Festival",
-      "types": ["Festival"],
-      "global": false,
       "counties": ["IN-MH"]
     }
   ]
 }
 ```
 
-Required top-level fields are `countryCode` (two-letter code), `countryName`, `year`, and `holidays`. Each holiday requires an ISO date (`YYYY-MM-DD`) within that year and a `name`. `localName` defaults to `name`; `types` defaults to `["Public"]`. Supported types are `Public`, `Festival`, `Bank`, `School`, `Authorities`, `Optional`, and `Observance`. `global` defaults to `true` unless `counties` is provided. Regional codes use `<countryCode>-<region>` format, for example `IN-MH` for Maharashtra. `fixed` and `launchYear` are optional.
+Required top-level fields are `countryCode` (two-letter code), `countryName`, `year`, and `holidays`. Each holiday requires an ISO date (`YYYY-MM-DD`) within that year and a `name`. `localName` defaults to `name`. Omit `counties` for a country-wide holiday; include one or more region codes to limit a holiday to those regions. Regional codes use `<countryCode>-<region>` format, for example `IN-MH` for Maharashtra. `fixed` and `launchYear` are optional. Holiday type metadata is not used or required.
 
 Example using PowerShell:
 

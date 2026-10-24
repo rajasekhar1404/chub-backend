@@ -18,7 +18,6 @@ const holidaySchema = new mongoose.Schema({
         required: true
     },
     fixed: Boolean,
-    global: Boolean,
     counties: {
         type: [String],
         default: null
@@ -26,10 +25,6 @@ const holidaySchema = new mongoose.Schema({
     launchYear: {
         type: Number,
         default: null
-    },
-    types: {
-        type: [String],
-        default: []
     }
 }, { _id: false })
 
