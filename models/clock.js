@@ -96,6 +96,16 @@ const clock = new mongoose.Schema({
         required: false,
         default: true
     },
+    showTasks: {
+        type: Boolean,
+        required: false,
+        default: false
+    },
+    showHolidays: {
+        type: Boolean,
+        required: false,
+        default: false
+    },
     imageSource: {
         type: String,
         required: false,
