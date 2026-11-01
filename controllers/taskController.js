@@ -3,6 +3,7 @@ const { findTasksBetween } = require('../dao/tasksDao')
 const taskModel = require('../models/taskModel')
 const asyncHandler = require('express-async-handler')
 const { buildFailureResponse, buildSuccessResponse } = require('../utils/responseBuilder')
+const { sortTasksByStatus } = require('../utils/taskSorting')
 
 const getTask = asyncHandler(async (req, res) => {
     const id = req.params.id
@@ -18,23 +19,40 @@ const getTask = asyncHandler(async (req, res) => {
 })
 
 const getTasksByDate = asyncHandler(async (req, res) => {
-    const { date } = req.body;
-    if ( !date ) {
-        res.status(OK)
-        throw new Error('No date found')
+    const { date, fromDate: requestedFromDate, toDate: requestedToDate } = req.body
+    const hasDateRange = requestedFromDate && requestedToDate
+    const fromDate = new Date(hasDateRange ? requestedFromDate : date)
+    const toDate = new Date(hasDateRange ? requestedToDate : date)
+
+    if (!hasDateRange && Number.isFinite(fromDate.getTime())) {
+        fromDate.setHours(0, 0, 0, 0)
+        toDate.setHours(23, 59, 59, 999)
     }
-    const data = await taskModel.find({
+
+    if (
+        !Number.isFinite(fromDate.getTime()) ||
+        !Number.isFinite(toDate.getTime()) ||
+        fromDate > toDate
+    ) {
+        res.status(BAD_REQUEST)
+        throw new Error('A valid date or date range is required')
+    }
+
+    const data = sortTasksByStatus(await taskModel.find({
         userid: req.user.id,
-        startDate : {$lte : date},
-        dueDate : {$gte : date}
-    })
+        startDate: { $lte: toDate },
+        $or: [
+            { dueDate: { $gte: fromDate } },
+            { dueDate: null, startDate: { $gte: fromDate } }
+        ]
+    }))
     res.json(data)
 })
 
 const getTasksByDateRange = asyncHandler(async (req, res) => {
     const { fromDate, toDate } = req.body;
     if ( !fromDate || !toDate ) buildFailureResponse('Date range not found', res)
-    else buildSuccessResponse(await findTasksBetween(req.user.id, fromDate, toDate), OK, res)
+    else buildSuccessResponse(sortTasksByStatus(await findTasksBetween(req.user.id, fromDate, toDate)), OK, res)
 })
 
 const getAllTasks = asyncHandler(async (req, res) => {
