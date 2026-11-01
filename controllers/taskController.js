@@ -3,6 +3,7 @@ const { findTasksBetween } = require('../dao/tasksDao')
 const taskModel = require('../models/taskModel')
 const asyncHandler = require('express-async-handler')
 const { buildFailureResponse, buildSuccessResponse } = require('../utils/responseBuilder')
+const { sortTasksByStatus } = require('../utils/taskSorting')
 
 const getTask = asyncHandler(async (req, res) => {
     const id = req.params.id
@@ -37,21 +38,21 @@ const getTasksByDate = asyncHandler(async (req, res) => {
         throw new Error('A valid date or date range is required')
     }
 
-    const data = await taskModel.find({
+    const data = sortTasksByStatus(await taskModel.find({
         userid: req.user.id,
         startDate: { $lte: toDate },
         $or: [
             { dueDate: { $gte: fromDate } },
             { dueDate: null, startDate: { $gte: fromDate } }
         ]
-    })
+    }))
     res.json(data)
 })
 
 const getTasksByDateRange = asyncHandler(async (req, res) => {
     const { fromDate, toDate } = req.body;
     if ( !fromDate || !toDate ) buildFailureResponse('Date range not found', res)
-    else buildSuccessResponse(await findTasksBetween(req.user.id, fromDate, toDate), OK, res)
+    else buildSuccessResponse(sortTasksByStatus(await findTasksBetween(req.user.id, fromDate, toDate)), OK, res)
 })
 
 const getAllTasks = asyncHandler(async (req, res) => {
