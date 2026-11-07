@@ -1,5 +1,6 @@
 const { WebSocket, WebSocketServer } = require('ws')
-const { NOT_FOUND, OK } = require('./constants/statusCodes')
+const { FORBIDDEN, NOT_FOUND, OK } = require('./constants/statusCodes')
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const {
     cameraMessagesFromConsole,
     cameraMessagesFromDisplay,
@@ -12,17 +13,41 @@ const send = (socket, payload) => {
     }
 }
 
-const routeMessage = (socket, message, clients) => {
+const getConnectedDevices = (clients, connectionStates, deviceId) => [...clients]
+    .map((client) => connectionStates.get(client))
+    .filter((state) => state?.deviceType === 'CONSOLE_DEVICE' && state.deviceId === deviceId && state.accepted)
+    .map(({ connectionId, username }) => ({ connectionId, username }))
+
+const sendConnectedDevices = (clients, connectionStates, deviceId) => {
+    const devices = getConnectedDevices(clients, connectionStates, deviceId)
+    for (const client of clients) {
+        const state = connectionStates.get(client)
+        if (state?.deviceType === 'DISPLAY_DEVICE' && state.deviceId === deviceId) {
+            send(client, {
+                messageType: 'CONNECTED_DEVICES_STATUS',
+                deviceType: 'DISPLAY_DEVICE',
+                data: { deviceId, devices },
+            })
+        }
+    }
+}
+
+const routeMessage = (socket, message, clients, connectionStates) => {
     if (message.messageType === 'keep_alive') return
 
+    const sourceState = connectionStates.get(socket)
+    if (!sourceState || !message.data || message.data.deviceId !== sourceState.deviceId) return
+
     if (
+        sourceState.deviceType === 'CONSOLE_DEVICE' &&
+        sourceState.accepted &&
+        message.data.connectionId === sourceState.connectionId &&
         message.deviceType === 'DISPLAY_DEVICE' &&
-        isValidCameraMessage(message, cameraMessagesFromConsole) &&
-        socket.protocol === `${message.data.deviceId}_CONSOLE_DEVICE`
+        isValidCameraMessage(message, cameraMessagesFromConsole)
     ) {
-        const displayProtocol = `${message.data.deviceId}_DISPLAY_DEVICE`
         for (const client of clients) {
-            if (client !== socket && client.protocol === displayProtocol) {
+            const state = connectionStates.get(client)
+            if (state?.deviceType === 'DISPLAY_DEVICE' && state.deviceId === sourceState.deviceId) {
                 send(client, message)
             }
         }
@@ -30,55 +55,141 @@ const routeMessage = (socket, message, clients) => {
     }
 
     if (
+        sourceState.deviceType === 'DISPLAY_DEVICE' &&
         message.deviceType === 'CONSOLE_DEVICE' &&
-        isValidCameraMessage(message, cameraMessagesFromDisplay) &&
-        socket.protocol === `${message.data.deviceId}_DISPLAY_DEVICE`
+        isValidCameraMessage(message, cameraMessagesFromDisplay)
     ) {
-        const consoleProtocol = `${message.data.deviceId}_CONSOLE_DEVICE`
         for (const client of clients) {
-            if (client !== socket && client.protocol === consoleProtocol) {
+            const state = connectionStates.get(client)
+            if (
+                state?.deviceType === 'CONSOLE_DEVICE' &&
+                state.deviceId === sourceState.deviceId &&
+                state.accepted &&
+                message.data.connectionId === state.connectionId
+            ) {
                 send(client, message)
             }
         }
         return
     }
 
-    for (const client of clients) {
-        if (client.readyState !== WebSocket.OPEN) continue
-
-        const clientProtocol = client.protocol
-
-        if (message.deviceType === 'DISPLAY_DEVICE') {
-            if (message.messageType === 'NEW_DISPLAY_JOINING') {
-                console.log('Display joined', message.data?.deviceId)
-            }
+    if (sourceState.deviceType === 'CONSOLE_DEVICE') {
+        if (message.messageType === 'CONSOLE_DEVICE_PAIRING') {
+            const { connectionId, username } = message.data
             if (
-                message.messageType === 'UPDATE_DISPLAY_SETTINGS_REQUEST' &&
-                clientProtocol === `${message.data?.deviceId}_DISPLAY_DEVICE`
-            ) {
-                send(client, {
-                    data: message.data,
-                    messageType: 'UPDATE_DISPLAY_SETTINGS_PROCESSING',
-                    deviceType: 'DISPLAY_DEVICE',
-                })
+                typeof connectionId !== 'string' ||
+                !UUID_PATTERN.test(connectionId) ||
+                typeof username !== 'string' ||
+                !username.trim() ||
+                username.length > 100
+            ) return
+
+            const duplicateConnectionId = [...clients].some((client) => {
+                const state = connectionStates.get(client)
+                return client !== socket &&
+                    state?.deviceId === sourceState.deviceId &&
+                    state.connectionId === connectionId &&
+                    (state.pending || state.accepted)
+            })
+            if (duplicateConnectionId) {
+                send(socket, { messageType: 'PAIRING_STATUS', deviceType: 'CONSOLE_DEVICE', status: FORBIDDEN })
+                return
             }
+
+            const display = [...clients].find((client) => {
+                const state = connectionStates.get(client)
+                return state?.deviceType === 'DISPLAY_DEVICE' && state.deviceId === sourceState.deviceId
+            })
+            if (!display) {
+                send(socket, { messageType: 'PAIRING_STATUS', deviceType: 'CONSOLE_DEVICE', status: NOT_FOUND })
+                return
+            }
+
+            Object.assign(sourceState, { connectionId, username: username.trim(), pending: true, accepted: false })
+            send(socket, { messageType: 'PAIRING_STATUS', deviceType: 'CONSOLE_DEVICE', status: 202 })
+            send(display, {
+                messageType: 'CONSOLE_DEVICE_PAIRING_REQUEST',
+                deviceType: 'DISPLAY_DEVICE',
+                data: { deviceId: sourceState.deviceId, connectionId, username: username.trim() },
+            })
+            return
         }
 
-        if (message.deviceType === 'CONSOLE_DEVICE') {
-            if (
-                message.messageType === 'CONSOLE_DEVICE_PAIRING' &&
-                clientProtocol === `${message.data?.deviceId}_DISPLAY_DEVICE`
-            ) {
-                send(socket, { messageType: 'PAIRING_STATUS', deviceType: 'CONSOLE_DEVICE', status: OK })
-                send(client, {
+        if (!sourceState.accepted || message.data.connectionId !== sourceState.connectionId) return
+
+        if (message.messageType === 'UPDATE_DISPLAY_SETTINGS_REQUEST' && message.deviceType === 'DISPLAY_DEVICE') {
+            for (const client of clients) {
+                const state = connectionStates.get(client)
+                if (state?.deviceType === 'DISPLAY_DEVICE' && state.deviceId === sourceState.deviceId) {
+                    send(client, {
+                        data: message.data,
+                        messageType: 'UPDATE_DISPLAY_SETTINGS_PROCESSING',
+                        deviceType: 'DISPLAY_DEVICE',
+                    })
+                }
+            }
+        }
+        return
+    }
+
+    if (message.deviceType === 'DISPLAY_DEVICE') {
+        if (message.messageType === 'NEW_DISPLAY_JOINING') {
+            console.log('Display joined', sourceState.deviceId)
+            sendConnectedDevices(clients, connectionStates, sourceState.deviceId)
+        }
+
+        if (message.messageType === 'PAIRING_DECISION') {
+            const { connectionId, accepted } = message.data
+            const consoleSocket = [...clients].find((client) => {
+                const state = connectionStates.get(client)
+                return state?.deviceType === 'CONSOLE_DEVICE' &&
+                    state.deviceId === sourceState.deviceId &&
+                    state.connectionId === connectionId &&
+                    state.pending
+            })
+            if (!consoleSocket || typeof accepted !== 'boolean') return
+
+            const consoleState = connectionStates.get(consoleSocket)
+            consoleState.pending = false
+            consoleState.accepted = accepted
+            if (accepted) {
+                send(consoleSocket, { messageType: 'PAIRING_STATUS', deviceType: 'CONSOLE_DEVICE', status: OK })
+                send(socket, {
                     messageType: 'DISPLAY_DEVICE_STATUS',
                     deviceType: 'DISPLAY_DEVICE',
-                    data: { ...message.data, isPaired: true },
+                    data: { deviceId: sourceState.deviceId, connectionId, username: consoleState.username, isPaired: true },
                 })
+                sendConnectedDevices(clients, connectionStates, sourceState.deviceId)
+            } else {
+                send(consoleSocket, { messageType: 'PAIRING_STATUS', deviceType: 'CONSOLE_DEVICE', status: FORBIDDEN })
             }
+        }
+
+        if (message.messageType === 'REMOVE_CONNECTED_DEVICE' && typeof message.data.connectionId === 'string') {
+            for (const client of clients) {
+                const state = connectionStates.get(client)
+                if (
+                    state?.deviceType === 'CONSOLE_DEVICE' &&
+                    state.deviceId === sourceState.deviceId &&
+                    state.connectionId === message.data.connectionId &&
+                    state.accepted
+                ) {
+                    state.accepted = false
+                    client.close(4001, 'Removed by display')
+                }
+            }
+            sendConnectedDevices(clients, connectionStates, sourceState.deviceId)
+        }
+    }
+
+    if (message.messageType === 'SENDING_DISPLAY_SETTINGS_TO_CONSOLE' && message.deviceType === 'CONSOLE_DEVICE') {
+        for (const client of clients) {
+            const state = connectionStates.get(client)
             if (
-                message.messageType === 'SENDING_DISPLAY_SETTINGS_TO_CONSOLE' &&
-                clientProtocol === `${message.data?.deviceId}_CONSOLE_DEVICE`
+                state?.deviceType === 'CONSOLE_DEVICE' &&
+                state.deviceId === sourceState.deviceId &&
+                state.accepted &&
+                (!message.data.connectionId || message.data.connectionId === state.connectionId)
             ) {
                 send(client, {
                     data: message.data,
@@ -88,22 +199,6 @@ const routeMessage = (socket, message, clients) => {
             }
         }
     }
-
-    if (message.messageType === 'CONSOLE_DEVICE_PAIRING') {
-        const displayProtocol = `${message.data?.deviceId}_DISPLAY_DEVICE`
-        const hasDisplay = [...clients].some((client) =>
-            client !== socket &&
-            client.readyState === WebSocket.OPEN &&
-            client.protocol === displayProtocol,
-        )
-        if (!hasDisplay) {
-            send(socket, {
-                messageType: 'PAIRING_STATUS',
-                deviceType: 'CONSOLE_DEVICE',
-                status: NOT_FOUND,
-            })
-        }
-    }
 }
 
 const attachWebSocketServer = (server) => {
@@ -111,6 +206,7 @@ const attachWebSocketServer = (server) => {
         noServer: true,
         handleProtocols: (protocols) => protocols.values().next().value || false,
     })
+    const connectionStates = new Map()
 
     server.on('upgrade', (request, socket, head) => {
         const pathname = new URL(request.url, 'http://localhost').pathname
@@ -130,12 +226,40 @@ const attachWebSocketServer = (server) => {
         }
 
         webSocketServer.handleUpgrade(request, socket, head, (client) => {
-            for (const existingClient of webSocketServer.clients) {
-                if (existingClient !== client && existingClient.protocol === client.protocol) {
-                    existingClient.close(1000, 'Replaced by a newer connection')
+            const protocolMatch = client.protocol.match(/^(.+)_(CONSOLE_DEVICE|DISPLAY_DEVICE)$/)
+            const deviceType = protocolMatch?.[2]
+            const deviceId = protocolMatch?.[1]
+            if (!deviceType || !deviceId) {
+                client.close(1008, 'Invalid device protocol')
+                return
+            }
+
+            if (deviceType === 'DISPLAY_DEVICE') {
+                for (const existingClient of webSocketServer.clients) {
+                    const state = connectionStates.get(existingClient)
+                    if (existingClient !== client && state?.deviceType === deviceType && state.deviceId === deviceId) {
+                        connectionStates.delete(existingClient)
+                        existingClient.close(1000, 'Replaced by a newer connection')
+                    }
                 }
             }
 
+            connectionStates.set(client, {
+                deviceId,
+                deviceType,
+                connectionId: null,
+                username: null,
+                accepted: deviceType === 'DISPLAY_DEVICE',
+                pending: false,
+            })
+
+            client.on('close', () => {
+                const state = connectionStates.get(client)
+                connectionStates.delete(client)
+                if (state?.deviceType === 'CONSOLE_DEVICE' && state.accepted) {
+                    sendConnectedDevices(webSocketServer.clients, connectionStates, state.deviceId)
+                }
+            })
             client.on('message', (data) => {
                 let message
                 try {
@@ -145,7 +269,7 @@ const attachWebSocketServer = (server) => {
                     return
                 }
 
-                routeMessage(client, message, webSocketServer.clients)
+                routeMessage(client, message, webSocketServer.clients, connectionStates)
             })
             client.on('error', (error) => console.error('WebSocket connection error', error))
         })
