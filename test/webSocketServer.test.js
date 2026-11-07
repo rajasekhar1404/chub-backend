@@ -21,6 +21,20 @@ const waitForMessage = (socket, messageType) => new Promise((resolve, reject) =>
     socket.on('message', handleMessage)
 })
 
+const hasMessageWithin = (socket, messageType, delay = 100) => new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+        socket.off('message', handleMessage)
+        resolve(false)
+    }, delay)
+    const handleMessage = (data) => {
+        if (JSON.parse(data.toString()).messageType !== messageType) return
+        clearTimeout(timeout)
+        socket.off('message', handleMessage)
+        resolve(true)
+    }
+    socket.on('message', handleMessage)
+})
+
 const connect = async (protocol) => {
     const socket = new WebSocket(`ws://127.0.0.1:${server.address().port}/ws`, protocol)
     clients.add(socket)
@@ -28,7 +42,7 @@ const connect = async (protocol) => {
     return socket
 }
 
-test('local WebSocket server supports pairing, settings updates, and stale connection replacement', async () => {
+test('local WebSocket server supports pairing, settings, camera relay, and stale connection replacement', async () => {
     server = http.createServer()
     webSocketServer = attachWebSocketServer(server)
     server.listen(0, '127.0.0.1')
@@ -63,6 +77,84 @@ test('local WebSocket server supports pairing, settings updates, and stale conne
         data: { deviceId: '123456789012', backgroundColor: '#654321' },
     }))
     assert.equal((await collectedSettings).data.backgroundColor, '#654321')
+
+    const liveCommand = waitForMessage(display, 'SECURITY_CAMERA_LIVE_START')
+    console.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_LIVE_START',
+        deviceType: 'DISPLAY_DEVICE',
+        data: { deviceId: '123456789012' },
+    }))
+    assert.equal((await liveCommand).data.deviceId, '123456789012')
+
+    const cameraFrame = waitForMessage(console, 'SECURITY_CAMERA_LIVE_FRAME')
+    display.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_LIVE_FRAME',
+        deviceType: 'CONSOLE_DEVICE',
+        data: { deviceId: '123456789012', base64: 'aGVsbG8=', capturedAt: Date.now() },
+    }))
+    assert.equal((await cameraFrame).data.base64, 'aGVsbG8=')
+
+    const videoOffer = waitForMessage(display, 'SECURITY_CAMERA_WEBRTC_SIGNAL')
+    console.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_WEBRTC_SIGNAL',
+        deviceType: 'DISPLAY_DEVICE',
+        data: { deviceId: '123456789012', signal: { type: 'offer', sdp: 'v=0\r\n' } },
+    }))
+    assert.deepEqual((await videoOffer).data.signal, { type: 'offer', sdp: 'v=0\r\n' })
+
+    const videoAnswer = waitForMessage(console, 'SECURITY_CAMERA_WEBRTC_SIGNAL')
+    display.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_WEBRTC_SIGNAL',
+        deviceType: 'CONSOLE_DEVICE',
+        data: {
+            deviceId: '123456789012',
+            signal: {
+                type: 'candidate',
+                candidate: { candidate: 'candidate:1 1 UDP 1 192.0.2.1 1234 typ host', sdpMid: '0', sdpMLineIndex: 0 },
+            },
+        },
+    }))
+    assert.equal((await videoAnswer).data.signal.type, 'candidate')
+
+    const streamStopped = waitForMessage(console, 'SECURITY_CAMERA_LIVE_STOP')
+    display.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_LIVE_STOP',
+        deviceType: 'CONSOLE_DEVICE',
+        data: { deviceId: '123456789012', reason: 'recording' },
+    }))
+    assert.equal((await streamStopped).data.reason, 'recording')
+
+    const oversizedSignal = hasMessageWithin(display, 'SECURITY_CAMERA_WEBRTC_SIGNAL')
+    console.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_WEBRTC_SIGNAL',
+        deviceType: 'DISPLAY_DEVICE',
+        data: { deviceId: '123456789012', signal: { type: 'offer', sdp: 'x'.repeat(32_001) } },
+    }))
+    assert.equal(await oversizedSignal, false)
+
+    const recordingChunk = waitForMessage(console, 'SECURITY_CAMERA_RECORDING_CHUNK')
+    display.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_RECORDING_CHUNK',
+        deviceType: 'CONSOLE_DEVICE',
+        data: { deviceId: '123456789012', recordingId: 'recording-1.mp4', chunkIndex: 0, chunk: 'eA==' },
+    }))
+    assert.equal((await recordingChunk).data.chunk, 'eA==')
+
+    const oversizedChunk = hasMessageWithin(console, 'SECURITY_CAMERA_RECORDING_CHUNK')
+    display.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_RECORDING_CHUNK',
+        deviceType: 'CONSOLE_DEVICE',
+        data: { deviceId: '123456789012', recordingId: 'recording-1.mp4', chunkIndex: 1, chunk: 'x'.repeat(64001) },
+    }))
+    assert.equal(await oversizedChunk, false)
+
+    const spoofedCommand = hasMessageWithin(display, 'SECURITY_CAMERA_LIVE_STOP')
+    console.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_LIVE_STOP',
+        deviceType: 'DISPLAY_DEVICE',
+        data: { deviceId: '987654321098' },
+    }))
+    assert.equal(await spoofedCommand, false)
 
     const replaced = once(display, 'close')
     const replacementDisplay = await connect('123456789012_DISPLAY_DEVICE')

@@ -2,11 +2,13 @@ import { DurableObject } from 'cloudflare:workers'
 import { createServer } from 'node:http'
 import { httpServerHandler } from 'cloudflare:node'
 import statusCodes from '../constants/statusCodes.js'
+import securityCameraMessages from '../constants/securityCameraMessages.js'
 import app from '../server.js'
 import dbConnection from '../config/dbConfig.js'
 import otpDao from '../dao/otpDao.js'
 
 const { NOT_FOUND, OK } = statusCodes
+const { cameraMessagesFromConsole, cameraMessagesFromDisplay, isValidCameraMessage } = securityCameraMessages
 
 export class WebSocketHub extends DurableObject {
     constructor(ctx, env) {
@@ -67,6 +69,35 @@ export class WebSocketHub extends DurableObject {
         }
 
         if (message.messageType === 'keep_alive') return
+        const sourceProtocol = socket.deserializeAttachment()?.protocol
+
+        if (
+            message.deviceType === 'DISPLAY_DEVICE' &&
+            isValidCameraMessage(message, cameraMessagesFromConsole) &&
+            sourceProtocol === `${message.data.deviceId}_CONSOLE_DEVICE`
+        ) {
+            const displayProtocol = `${message.data.deviceId}_DISPLAY_DEVICE`
+            for (const client of sockets) {
+                if (client !== socket && client.deserializeAttachment()?.protocol === displayProtocol) {
+                    send(client, message)
+                }
+            }
+            return
+        }
+
+        if (
+            message.deviceType === 'CONSOLE_DEVICE' &&
+            isValidCameraMessage(message, cameraMessagesFromDisplay) &&
+            sourceProtocol === `${message.data.deviceId}_DISPLAY_DEVICE`
+        ) {
+            const consoleProtocol = `${message.data.deviceId}_CONSOLE_DEVICE`
+            for (const client of sockets) {
+                if (client !== socket && client.deserializeAttachment()?.protocol === consoleProtocol) {
+                    send(client, message)
+                }
+            }
+            return
+        }
 
         for (const client of sockets) {
             const clientProtocol = client.deserializeAttachment()?.protocol

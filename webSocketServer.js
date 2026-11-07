@@ -1,5 +1,10 @@
 const { WebSocket, WebSocketServer } = require('ws')
 const { NOT_FOUND, OK } = require('./constants/statusCodes')
+const {
+    cameraMessagesFromConsole,
+    cameraMessagesFromDisplay,
+    isValidCameraMessage,
+} = require('./constants/securityCameraMessages')
 
 const send = (socket, payload) => {
     if (socket.readyState === WebSocket.OPEN) {
@@ -9,6 +14,34 @@ const send = (socket, payload) => {
 
 const routeMessage = (socket, message, clients) => {
     if (message.messageType === 'keep_alive') return
+
+    if (
+        message.deviceType === 'DISPLAY_DEVICE' &&
+        isValidCameraMessage(message, cameraMessagesFromConsole) &&
+        socket.protocol === `${message.data.deviceId}_CONSOLE_DEVICE`
+    ) {
+        const displayProtocol = `${message.data.deviceId}_DISPLAY_DEVICE`
+        for (const client of clients) {
+            if (client !== socket && client.protocol === displayProtocol) {
+                send(client, message)
+            }
+        }
+        return
+    }
+
+    if (
+        message.deviceType === 'CONSOLE_DEVICE' &&
+        isValidCameraMessage(message, cameraMessagesFromDisplay) &&
+        socket.protocol === `${message.data.deviceId}_DISPLAY_DEVICE`
+    ) {
+        const consoleProtocol = `${message.data.deviceId}_CONSOLE_DEVICE`
+        for (const client of clients) {
+            if (client !== socket && client.protocol === consoleProtocol) {
+                send(client, message)
+            }
+        }
+        return
+    }
 
     for (const client of clients) {
         if (client.readyState !== WebSocket.OPEN) continue
