@@ -152,9 +152,12 @@ const generageTaskpadId = async (id) => {
 
 const buildTaskPad = (newTaskpad, taskpadId, userid ) => {
     const { title, content, isPublic } = newTaskpad
+    const type = validateTaskpadType(newTaskpad.type)
     return {
         title,
         content,
+        type,
+        items: validateTaskpadItems(newTaskpad.items, type),
         taskpadId,
         userid,
         isPublic
@@ -167,11 +170,42 @@ const validateTaskpadUpate = ( updateTaskpadRequest, id ) => {
     if ( !taskpadId || taskpadId.trim().length <= 3 ) throw new Error('Invalid taskpad Id')
     if ( userid !== id ) throw new Error(`You don't have access to edit: ${title}`)
 
+    const type = validateTaskpadType(updateTaskpadRequest.type)
     return {
         title: title.trim(),
         content: content,
+        type,
+        items: validateTaskpadItems(updateTaskpadRequest.items, type),
         isPublic: isPublic,
     }
+}
+
+const validateTaskpadType = (type) => {
+    const normalizedType = type || 'text'
+    if (!['text', 'list'].includes(normalizedType)) throw new Error('Invalid taskpad type')
+    return normalizedType
+}
+
+const validateTaskpadItems = (items = [], type) => {
+    if (type !== 'list') return []
+    if (!Array.isArray(items)) throw new Error('Checklist items must be a list')
+    return items.map((item) => {
+        if (
+            !item ||
+            typeof item.id !== 'string' ||
+            !item.id.trim() ||
+            typeof item.text !== 'string' ||
+            !item.text.trim() ||
+            typeof item.checked !== 'boolean'
+        ) {
+            throw new Error('Invalid checklist item')
+        }
+        return {
+            id: item.id.trim(),
+            text: item.text.trim(),
+            checked: item.checked
+        }
+    })
 }
 
 module.exports = {

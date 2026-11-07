@@ -1,5 +1,20 @@
 const mongoose = require('mongoose')
 
+const TaskPadItem = new mongoose.Schema({
+    id: {
+        type: String,
+        required: true
+    },
+    text: {
+        type: String,
+        required: true
+    },
+    checked: {
+        type: Boolean,
+        default: false
+    }
+}, { _id: false })
+
 const TaskPadModel = new mongoose.Schema({
     userid: {
         type: String,
@@ -16,6 +31,15 @@ const TaskPadModel = new mongoose.Schema({
     content: {
         type: String,
         required: [false]
+    },
+    type: {
+        type: String,
+        enum: ['text', 'list'],
+        default: 'text'
+    },
+    items: {
+        type: [TaskPadItem],
+        default: []
     },
     isPublic: {
         type: Boolean,
