@@ -68,10 +68,14 @@ test('local WebSocket server supports pairing, settings, camera relay, and stale
     display.send(JSON.stringify({
         messageType: 'PAIRING_DECISION',
         deviceType: 'DISPLAY_DEVICE',
-        data: { deviceId: '123456789012', connectionId, accepted: true },
+        data: { deviceId: '123456789012', connectionId, accepted: true, displayName: 'Living Room' },
     }))
-    assert.equal((await pairingStatus).status, 200)
-    assert.equal((await displayStatus).data.isPaired, true)
+    const pairedConsoleStatus = await pairingStatus
+    assert.equal(pairedConsoleStatus.status, 200)
+    assert.equal(pairedConsoleStatus.deviceName, 'Living Room')
+    const pairedDisplayStatus = await displayStatus
+    assert.equal(pairedDisplayStatus.data.isPaired, true)
+    assert.equal(pairedDisplayStatus.data.displayName, 'Living Room')
     assert.deepEqual((await connectedDevices).data.devices, [{ connectionId, username: 'test-user' }])
 
     const settingsUpdate = waitForMessage(display, 'UPDATE_DISPLAY_SETTINGS_PROCESSING')
@@ -106,13 +110,21 @@ test('local WebSocket server supports pairing, settings, camera relay, and stale
     }))
     assert.equal((await cameraFrame).data.base64, 'aGVsbG8=')
 
+    const liveSessionId = 'live-session-1'
     const videoOffer = waitForMessage(display, 'SECURITY_CAMERA_WEBRTC_SIGNAL')
     console.send(JSON.stringify({
         messageType: 'SECURITY_CAMERA_WEBRTC_SIGNAL',
         deviceType: 'DISPLAY_DEVICE',
-        data: { deviceId: '123456789012', connectionId, signal: { type: 'offer', sdp: 'v=0\r\n' } },
+        data: {
+            deviceId: '123456789012',
+            connectionId,
+            sessionId: liveSessionId,
+            signal: { type: 'offer', sdp: 'v=0\r\n' },
+        },
     }))
-    assert.deepEqual((await videoOffer).data.signal, { type: 'offer', sdp: 'v=0\r\n' })
+    const relayedOffer = await videoOffer
+    assert.deepEqual(relayedOffer.data.signal, { type: 'offer', sdp: 'v=0\r\n' })
+    assert.equal(relayedOffer.data.sessionId, liveSessionId)
 
     const videoAnswer = waitForMessage(console, 'SECURITY_CAMERA_WEBRTC_SIGNAL')
     display.send(JSON.stringify({
@@ -121,13 +133,130 @@ test('local WebSocket server supports pairing, settings, camera relay, and stale
         data: {
             deviceId: '123456789012',
             connectionId,
+            sessionId: liveSessionId,
             signal: {
                 type: 'candidate',
                 candidate: { candidate: 'candidate:1 1 UDP 1 192.0.2.1 1234 typ host', sdpMid: '0', sdpMLineIndex: 0 },
             },
         },
     }))
-    assert.equal((await videoAnswer).data.signal.type, 'candidate')
+    const relayedCandidate = await videoAnswer
+    assert.equal(relayedCandidate.data.signal.type, 'candidate')
+    assert.equal(relayedCandidate.data.sessionId, liveSessionId)
+
+    const liveRecordingCommand = waitForMessage(display, 'SECURITY_CAMERA_LIVE_RECORDING')
+    console.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_LIVE_RECORDING',
+        deviceType: 'DISPLAY_DEVICE',
+        data: {
+            deviceId: '123456789012',
+            connectionId,
+            sessionId: liveSessionId,
+            action: 'start',
+            durationMinutes: 5,
+        },
+    }))
+    const relayedRecordingCommand = await liveRecordingCommand
+    assert.equal(relayedRecordingCommand.data.sessionId, liveSessionId)
+    assert.equal(relayedRecordingCommand.data.durationMinutes, 5)
+
+    const invalidRecordingCommand = hasMessageWithin(display, 'SECURITY_CAMERA_LIVE_RECORDING')
+    console.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_LIVE_RECORDING',
+        deviceType: 'DISPLAY_DEVICE',
+        data: {
+            deviceId: '123456789012',
+            connectionId,
+            sessionId: liveSessionId,
+            action: 'start',
+            durationMinutes: 61,
+        },
+    }))
+    assert.equal(await invalidRecordingCommand, false)
+
+    const liveRecordingState = waitForMessage(console, 'SECURITY_CAMERA_LIVE_RECORDING_STATE')
+    display.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_LIVE_RECORDING_STATE',
+        deviceType: 'CONSOLE_DEVICE',
+        data: {
+            deviceId: '123456789012',
+            connectionId,
+            sessionId: liveSessionId,
+            state: 'saved',
+            recordingId: 'recording-1.mp4',
+        },
+    }))
+    assert.equal((await liveRecordingState).data.state, 'saved')
+
+    const streamRequest = waitForMessage(display, 'SECURITY_CAMERA_RECORDING_STREAM_REQUEST')
+    console.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_RECORDING_STREAM_REQUEST',
+        deviceType: 'DISPLAY_DEVICE',
+        data: {
+            deviceId: '123456789012',
+            connectionId,
+            requestId: 'stream-request-1',
+            recordingId: 'recording-1731600000000.mp4',
+        },
+    }))
+    const relayedStreamRequest = await streamRequest
+    assert.equal(relayedStreamRequest.data.requestId, 'stream-request-1')
+    assert.equal(relayedStreamRequest.data.recordingId, 'recording-1731600000000.mp4')
+
+    const streamResult = waitForMessage(console, 'SECURITY_CAMERA_RECORDING_STREAM_RESULT')
+    display.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_RECORDING_STREAM_RESULT',
+        deviceType: 'CONSOLE_DEVICE',
+        data: {
+            deviceId: '123456789012',
+            connectionId,
+            requestId: 'stream-request-1',
+            recordingId: 'recording-1731600000000.mp4',
+            url: 'http://192.168.1.25:54321/stream/0123456789abcdef0123456789abcdef0123456789abcdef/recording-1731600000000.mp4',
+        },
+    }))
+    assert.equal((await streamResult).data.requestId, 'stream-request-1')
+
+    const invalidStreamRequest = hasMessageWithin(display, 'SECURITY_CAMERA_RECORDING_STREAM_REQUEST')
+    console.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_RECORDING_STREAM_REQUEST',
+        deviceType: 'DISPLAY_DEVICE',
+        data: {
+            deviceId: '123456789012',
+            connectionId,
+            requestId: 'stream-request-2',
+            recordingId: '../private.mp4',
+        },
+    }))
+    assert.equal(await invalidStreamRequest, false)
+
+    const invalidStreamResult = hasMessageWithin(console, 'SECURITY_CAMERA_RECORDING_STREAM_RESULT')
+    display.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_RECORDING_STREAM_RESULT',
+        deviceType: 'CONSOLE_DEVICE',
+        data: {
+            deviceId: '123456789012',
+            connectionId,
+            requestId: 'stream-request-3',
+            recordingId: 'recording-1731600000000.mp4',
+            url: 'file:///private/recording.mp4',
+        },
+    }))
+    assert.equal(await invalidStreamResult, false)
+
+    const publicStreamResult = hasMessageWithin(console, 'SECURITY_CAMERA_RECORDING_STREAM_RESULT')
+    display.send(JSON.stringify({
+        messageType: 'SECURITY_CAMERA_RECORDING_STREAM_RESULT',
+        deviceType: 'CONSOLE_DEVICE',
+        data: {
+            deviceId: '123456789012',
+            connectionId,
+            requestId: 'stream-request-4',
+            recordingId: 'recording-1731600000000.mp4',
+            url: 'http://example.com:54321/stream/0123456789abcdef0123456789abcdef0123456789abcdef/recording-1731600000000.mp4',
+        },
+    }))
+    assert.equal(await publicStreamResult, false)
 
     const streamStopped = waitForMessage(console, 'SECURITY_CAMERA_LIVE_STOP')
     display.send(JSON.stringify({
