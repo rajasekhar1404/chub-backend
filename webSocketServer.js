@@ -150,14 +150,37 @@ const routeMessage = (socket, message, clients, connectionStates) => {
             if (!consoleSocket || typeof accepted !== 'boolean') return
 
             const consoleState = connectionStates.get(consoleSocket)
+            const requestedDisplayName = message.data.displayName
+            if (
+                accepted &&
+                requestedDisplayName != null &&
+                (typeof requestedDisplayName !== 'string' ||
+                    !requestedDisplayName.trim() ||
+                    requestedDisplayName.trim().length > 50)
+            ) return
+            const displayName = accepted
+                ? (requestedDisplayName?.trim() || sourceState.deviceName || sourceState.deviceId)
+                : undefined
+            if (accepted) sourceState.deviceName = displayName
             consoleState.pending = false
             consoleState.accepted = accepted
             if (accepted) {
-                send(consoleSocket, { messageType: 'PAIRING_STATUS', deviceType: 'CONSOLE_DEVICE', status: OK })
+                send(consoleSocket, {
+                    messageType: 'PAIRING_STATUS',
+                    deviceType: 'CONSOLE_DEVICE',
+                    status: OK,
+                    deviceName: displayName,
+                })
                 send(socket, {
                     messageType: 'DISPLAY_DEVICE_STATUS',
                     deviceType: 'DISPLAY_DEVICE',
-                    data: { deviceId: sourceState.deviceId, connectionId, username: consoleState.username, isPaired: true },
+                    data: {
+                        deviceId: sourceState.deviceId,
+                        displayName,
+                        connectionId,
+                        username: consoleState.username,
+                        isPaired: true,
+                    },
                 })
                 sendConnectedDevices(clients, connectionStates, sourceState.deviceId)
             } else {
